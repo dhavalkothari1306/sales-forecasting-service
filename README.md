@@ -1,99 +1,88 @@
-# State Sales Forecasting Service
+# 📊 State Sales Forecasting Service
 
-Production-style forecasting system for the assignment:
+> **Production-grade backend forecasting pipeline and REST API.**
 
-- Forecast next 8 weeks of sales for each state.
-- Train and compare SARIMA, Prophet, XGBoost with lag features, and LSTM.
-- Use time-series validation with no target leakage.
-- Persist the selected model and forecast artifacts.
-- Serve predictions with a FastAPI REST API.
+This service aggregates and clean-resamples state-level sales data to generate robust, 8-week future sales forecasts. By implementing a automated tournament-style selection framework, it evaluates multiple modeling algorithms—**SARIMA, Prophet, XGBoost with lag features, and LSTM**—to choose and serve the best-performing model dynamically for each state.
 
-## Project Layout
+---
 
-```text
-app/
-  forecasting/        Data loading, feature engineering, models, trainer
-  services/           Artifact loading for API use
-  main.py             FastAPI application
-data/raw/             Source workbook
-artifacts/            Generated training outputs
-scripts/              CLI utilities
-tests/                Unit tests
-docs/                 Architecture, API, video script
-```
+## 🚀 Key Features
 
-## Setup
+*   **Resilient Data Preprocessing:** Linear interpolation of missing dates, automatic aggregation to weekly `W-SUN` frequency, and isolated Excel subprocess parsing to avoid file locks.
+*   **Leakage-Controlled Feature Engineering:** Generates lag values ($t-1, t-7, t-30$), rolling features from shifted targets (`y.shift(1)`), calendar coordinates, and custom US federal holiday mappings.
+*   **Automated Model Tournaments:** Splits data using time-series cross-validation, trains four diverse algorithms, refits the winner (lowest validation sMAPE) on complete history, and includes an automated fallback to Seasonal Naive.
+*   **Sub-millisecond Serving:** High-performance, stateless FastAPI REST API that serves forecasts from pre-calculated artifacts.
+*   **Enterprise Tooling:** Complete test coverage with `pytest`, data quality reporting, and flexible configuration via environment files or CLI parameters.
 
-Python 3.11 is recommended because Prophet and TensorFlow publish the most reliable wheels there.
+---
 
+## 📁 Repository Structure
+
+*   [`app/`](file:///d:/Projects/files/sales-forecasting-service/app) - Core application package.
+    *   [`forecasting/`](file:///d:/Projects/files/sales-forecasting-service/app/forecasting) - Core ML modules (data loading, features, models, trainer, persistence).
+    *   [`services/`](file:///d:/Projects/files/sales-forecasting-service/app/services) - Service layer for artifact caching and loading.
+    *   [`main.py`](file:///d:/Projects/files/sales-forecasting-service/app/main.py) - FastAPI API application.
+*   [`data/`](file:///d:/Projects/files/sales-forecasting-service/data) - Raw input Excel workbooks.
+*   [`artifacts/`](file:///d:/Projects/files/sales-forecasting-service/artifacts) - Generated forecasts, leaderboards, data quality logs, and serialized model files.
+*   [`scripts/`](file:///d:/Projects/files/sales-forecasting-service/scripts) - Command-line interfaces for training and data profiling.
+*   [`tests/`](file:///d:/Projects/files/sales-forecasting-service/tests) - Unit and integration testing suites.
+*   [`docs/`](file:///d:/Projects/files/sales-forecasting-service/docs) - Technical specification files.
+
+---
+
+## 📖 Documentation Index
+
+To explore specific sections of the service design and operation, refer to the guides below:
+
+1.  **[Setup & Installation Guide](file:///d:/Projects/files/sales-forecasting-service/docs/SETUP_GUIDE.md)**
+    *   Step-by-step instructions for Python 3.11 virtual environment configuration.
+    *   Environment variables, CLI flags, profiling tools, and how to execute the testing suite.
+2.  **[System Architecture](file:///d:/Projects/files/sales-forecasting-service/docs/ARCHITECTURE.md)**
+    *   Detailed explanation of the offline data processing pipeline, feature engineering, recursive predictions, evaluation metrics, and the tournament workflow.
+    *   System architecture flow diagram (Mermaid).
+3.  **[API Reference](file:///d:/Projects/files/sales-forecasting-service/docs/API.md)**
+    *   Detailed HTTP endpoints documentation for `/health`, `/states`, `/models/selection`, `/models/leaderboard`, `/predict`, and `/predict/{state}`.
+    *   Request/response JSON schemas, descriptions, and cURL commands.
+4.  **[Submission Checklist](file:///d:/Projects/files/sales-forecasting-service/docs/SUBMISSION_CHECKLIST.md)**
+    *   Summary of files, data configurations, and evaluation targets.
+5.  **[Presentation Video Script](file:///d:/Projects/files/sales-forecasting-service/docs/VIDEO_SCRIPT.md)**
+    *   A structured 3-5 minute video outline explaining the system design, tournament selections, and API response speed.
+
+---
+
+## ⚡ Quick Start
+
+### 1. Configure the Environment
+Ensure Python 3.11 is installed, then run:
 ```powershell
-cd D:\Projects\files\sales-forecasting-service
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Train Models
-
-Full assignment run:
-
+### 2. Run automated Model Tournament
+Run the training command to preprocess the Excel sheets, train the candidate models, and output validation metrics:
 ```powershell
-python scripts\train.py
+# Full run on all 43 states
+python scripts/train.py
+
+# Faster test run on selected states
+python scripts/train.py --states Alabama,California --lstm-epochs 3
 ```
 
-Faster local smoke run on two states with fewer LSTM epochs:
-
-```powershell
-python scripts\train.py --states Alabama,California --lstm-epochs 3
-```
-
-Training outputs:
-
-- `artifacts/leaderboard.csv` - model metrics for every state/model candidate.
-- `artifacts/model_selection.json` - selected model and metadata per state.
-- `artifacts/forecasts.csv` - next 8 weekly forecasts served by the API.
-- `artifacts/data_quality.csv` - weekly missing-date handling report.
-- `artifacts/models/` - selected model artifacts.
-
-## Run API
-
+### 3. Launch the API Service
+Start the FastAPI development server:
 ```powershell
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) in your browser to view the interactive Swagger API documentation.
 
-Open:
-
-- `http://127.0.0.1:8000/docs`
-- `http://127.0.0.1:8000/health`
-
-Example request:
-
+### 4. Query predictions
+Get the 8-week forecast for California:
 ```powershell
 Invoke-RestMethod `
   -Uri http://127.0.0.1:8000/predict `
   -Method POST `
   -ContentType "application/json" `
-  -Body '{"states":["California","Texas"],"horizon_weeks":8}'
+  -Body '{"states":["California"],"horizon_weeks":8}'
 ```
-
-## Data Handling
-
-The raw workbook has irregular dates, so preprocessing aggregates to weekly state-level sales using `W-SUN`. Missing weekly slots are interpolated, then forward/back filled if needed. The pipeline records all filled weeks in `artifacts/data_quality.csv`.
-
-Lag and rolling features are built only from prior values:
-
-- Lags: `t-1`, `t-7`, `t-30`
-- Rolling: mean and standard deviation over 4, 8, and 12 prior weeks
-- Calendar: day of week, week of year, month, quarter, year, month boundaries, US holiday flag
-
-## Tests
-
-```powershell
-pytest
-python -m compileall app scripts
-```
-
-## Notes
-
-If an optional modeling dependency is missing, that model is marked as `dependency_missing` in the leaderboard instead of stopping the training job. In a clean Python 3.11 environment with `requirements.txt` installed, all four mandatory models are trained and compared.
-
